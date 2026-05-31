@@ -117,7 +117,7 @@ def opencv_gorsel_kontrol(pil_image):
     mask_gb = cv2.bitwise_and(mask_gb, mask_gb, mask=mask) 
     oran_gb = (cv2.countNonZero(mask_gb) / gecerli_piksel) * 100
 
-    if oran_gb > 15.0: return False, "Medikal Dışı Renk Profil"
+    if oran_gb > 15.0: return False, "Medikal Dışı Renk Profili"
 
     edges = cv2.Canny(gray, 50, 150)
     edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
@@ -144,7 +144,7 @@ with st.sidebar:
     st.success("🟢 **ResNet50:** Entegre")
     st.success("🟢 **MobileNetV2:** Entegre")
     st.error("🔒 **Giriş Kalkanı:** Aktif")
-    st.info("🛡 **Filtre Sistemi:** Devrede")
+    st.info("🛡️ **Filtre Sistemi:** Devrede")
     st.info("🎯 **Baraj Eşiği:** %45")
     st.markdown("---")
     st.markdown("### 🧬 Analiz Sınıfları")
@@ -161,7 +161,7 @@ tab1, tab2, tab3 = st.tabs(["🖥 Canlı Teşhis", "📊 Performans Metrikleri",
 with tab1:
     st.markdown("### 📸 Görsel Yükleme Paneli")
     
-    # 🚨 ÇÖZÜM 1: Her yeni dosya yüklendiğinde Streamlit önbelleğini tetiklemek için benzersiz bir key atıyoruz
+    # Her yeni dosya yüklendiğinde durumu tetiklemek için benzersiz bir key tanımlıyoruz
     uploaded_file = st.file_uploader(
         "Mikroskop görüntüsünü buraya sürükleyin veya seçin", 
         type=["png", "jpg", "jpeg"],
@@ -186,7 +186,6 @@ with tab1:
             img_arr = np.array(img_keras) / 255.0
             img_arr = np.expand_dims(img_arr, axis=0)
             
-            # Keras tahminini anlık olarak yeniliyoruz
             gate_pred = float(gatekeeper_model.predict(img_arr, verbose=0)[0][0])
             if gate_pred < 0.50:
                 is_medical_blood = False
@@ -198,23 +197,25 @@ with tab1:
                 st.warning(f"**Sebep:** {mesaj}")
                 st.info("Lütfen mikroskop altında çekilmiş gerçek bir kan hücresi fotoğrafı yükleyin.")
         else:
-            # 🚨 ÇÖZÜM 2: PyTorch tensör akışını zorunlu olarak sıfırlayıp temiz veri oluşturuyoruz
+            # PyTorch tensör akışını hazırlıyoruz
             input_tensor = img_transforms(image).unsqueeze(0).to(DEVICE)
             
             with torch.no_grad():
-                # Modelleri anlık girdiye zorla
+                # 1. ResNet50 Tahmini ve Olasılık Aktarımı
                 res_out = resnet_model(input_tensor)
-                res_probs = F.softmax(res_out, dim=1).gradient = None # Bellek kilidini çöz
-                res_probs = res_probs.cpu().numpy()[0]
+                res_softmax = F.softmax(res_out, dim=1)
+                res_probs = res_softmax.cpu().numpy()[0]
                 
+                # 2. MobileNetV2 Tahmini ve Olasılık Aktarımı
                 mob_out = mobilenet_model(input_tensor)
-                mob_probs = F.softmax(mob_out, dim=1).cpu().numpy()[0]
+                mob_softmax = F.softmax(mob_out, dim=1)
+                mob_probs = mob_softmax.cpu().numpy()[0]
 
-            # Olasılıkları temiz float dizilerine zorluyoruz (RAM takılmasını önlemek için)
+            # RAM takılmasını önlemek için saf float dizilerine zorlama
             res_probs = np.array(res_probs, dtype=np.float64)
             mob_probs = np.array(mob_probs, dtype=np.float64)
 
-            # 🚨 ÇÖZÜM 3: Ortak Karar (Ensemble) Dağılım Hesabı
+            # 🚨 Akıllı Yumuşak Konsensüs Ortalaması (Soft Voting Ensemble)
             ensemble_probs = (res_probs + mob_probs) / 2.0
             ensemble_idx = int(ensemble_probs.argmax())
             ensemble_max_prob = float(ensemble_probs[ensemble_idx])
@@ -223,7 +224,6 @@ with tab1:
                 st.markdown("#### 🧠 Konsensüs Analiz Sonucu")
                 
                 if ensemble_max_prob >= 0.45:
-                    # 🚨 .clear() tetikleyicisi gibi çalışması için dinamik metrik basımı
                     st.metric(
                         label="Sistem Tahmini", 
                         value=CLASS_NAMES[ensemble_idx], 
@@ -241,7 +241,7 @@ with tab1:
                 st.markdown("---")
                 st.markdown("###### 📊 Güncel Olasılık Dağılımı")
                 
-                # Çubukları anlık gelen yeni array değerlerine göre döngüde yeniden çiziyoruz
+                # Çubukları anlık olarak gelen yeni değerlere göre dinamik çiziyoruz
                 for i, c_name in enumerate(CLASS_NAMES):
                     st.progress(float(ensemble_probs[i]), text=f"{c_name} (%{ensemble_probs[i]*100:.1f})")
 
