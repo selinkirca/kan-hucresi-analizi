@@ -4,4 +4,3 @@ torchvision
 Pillow
 numpy
 opencv-python-headless
-tensorflow
