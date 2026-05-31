@@ -7,7 +7,7 @@ from PIL import Image
 import os
 import numpy as np
 import cv2
-import tensorflow as tf
+
 
 # ==========================================
 # SAYFA AYARLARI VE CSS
